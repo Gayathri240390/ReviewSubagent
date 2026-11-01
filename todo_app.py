@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,18 +19,28 @@ def load_tasks(path: Path) -> list[dict[str, Any]]:
 
     if not isinstance(tasks, list) or any(
         not isinstance(task, dict)
-        or not isinstance(task.get("id"), int)
+        # type() rather than isinstance(): bool is a subclass of int,
+        # so isinstance(True, int) would wrongly accept "id": true.
+        or type(task.get("id")) is not int
         or not isinstance(task.get("title"), str)
         or not isinstance(task.get("completed"), bool)
         for task in tasks
     ):
         raise ValueError(f"Unexpected task data in: {path}")
+
+    ids = [task["id"] for task in tasks]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"Duplicate task IDs in: {path}")
     return tasks
 
 
 def save_tasks(path: Path, tasks: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+    # Write to a temp file, then swap it in, so a crash mid-write
+    # never leaves a half-written tasks file behind.
+    temp_path = path.with_name(path.name + ".tmp")
+    temp_path.write_text(json.dumps(tasks, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp_path, path)
 
 
 def add_task(path: Path, title: str) -> dict[str, Any]:
